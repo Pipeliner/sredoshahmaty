@@ -1,4 +1,3 @@
-from io import BytesIO
 import json
 import sys
 from typing import Dict, Optional
@@ -114,9 +113,10 @@ def get_last_swiss_tournament(team_id: str) -> Optional[Dict]:
 
 def thursday_tournament_exists(team_id: str) -> Dict:
     last_tournament = get_last_swiss_tournament(team_id)
+    next_thursday = get_next_thursday()
     if last_tournament:
         starts_at = pendulum.parse(last_tournament["startsAt"])
-        if starts_at.day_of_week == pendulum.THURSDAY:
+        if starts_at.date() == next_thursday.date():
             return last_tournament
     return None
 
