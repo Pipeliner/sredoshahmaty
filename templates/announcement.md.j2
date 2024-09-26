@@ -1,0 +1,68 @@
+Начинаем через 5 минут! 🕒 Starting in 5 minutes!
+{% if is_lichess %}
+{{ tournament_url }}
+{% endif %}
+
+{% if is_telegram %}
+🔗 [Ссылка на турнир]({{ tournament_url }})
+{% endif %}
+
+{% if false %}
+
+Начинаем через полтора часа! 🕒 Starting in hour and a half!
+{% if is_lichess %}
+🌟 *СРЕДОшахматы* 🌟
+📅 {{ tournament_date.in_timezone('UTC').format('dddd, D MMMM, HH:mm') }} UTC
+
+🔗 [Ссылка на турнир]({{ tournament_url }})
+{% endif %}
+
+{% if is_telegram %}
+🌟 *WednesdayChess* 🌟
+📅 {{ tournament_date.in_timezone('Europe/Moscow').format('dddd, D MMMM, HH:mm') }} MSK ({{ tournament_date.in_timezone('UTC').format('HH:mm') }} UTC)
+
+🔗 [Tournament Link]({{ tournament_url }})
+{% endif %}
+
+---
+♟️🤖💖 Средошахматы Бот с сердечным приветом!
+
+
+
+{% if is_lichess %}
+Thursday is the day of WednesdayChess! 🌟
+Tomorrow at 9:30 PM MSK (6:30 PM UTC), the next battle on the Lichess boards will begin.
+The pieces won't move themselves, so join the tournament and show your mastery! 🏆
+📅 {{ tournament_date.format('dddd, MMMM D, HH:mm') }} MSK ({{ tournament_date.in_timezone('UTC').format('HH:mm') }} UTC)
+{{ tournament_url }}
+
+Четверг — день СРЕДОшахмат! 🌟
+Завтра в 21:30 МСК начнётся очередное сражение на досках Lichess.
+Фигуры сами себя не подвигают, поэтому присоединяйтесь к турниру и покажите своё мастерство! 🏆
+📅 {{ tournament_date.format('dddd, D MMMM, HH:mm') }} МСК
+{{ tournament_url }}
+
+♟️🤖💖 Средошахматы Бот с сердечным приветом!
+{% endif %}
+
+{% if is_telegram %}
+🎉 *WednesdayChess Tournament Announcement* 🎉
+
+🗓️ *Date:* {{ tournament_date.format('dddd, MMMM D') }}
+🕒 *Time:* {{ tournament_date.format('HH:mm') }} MSK ({{ tournament_date.in_timezone('UTC').format('HH:mm') }} UTC)
+🔗 *Tournament Link:* {{ tournament_url }}
+
+Join us for another exciting WednesdayChess tournament on Lichess! Show off your skills and compete with fellow chess enthusiasts.
+
+🇷🇺 *Объявление о турнире СРЕДОшахмат* 🇷🇺
+
+🗓️ *Дата:* {{ tournament_date.format('dddd, D MMMM') }}
+🕒 *Время:* {{ tournament_date.format('HH:mm') }} МСК
+🔗 *Ссылка на турнир:* {{ tournament_url }}
+
+Присоединяйтесь к нам на очередном захватывающем турнире СРЕДОшахмат на Lichess! Покажите свое мастерство и посоревнуйтесь с другими любителями шахмат.
+
+♟️🤖💖 Средошахматы Бот с сердечным приветом!
+{% endif %}
+
+{% endif %}
