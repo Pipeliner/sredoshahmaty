@@ -3,7 +3,8 @@ import json
 import logging
 import os
 import sys
-from typing import Dict, Optional
+import re
+from typing import Dict, Optional, Tuple
 
 import dotenv
 import httpx
@@ -27,6 +28,7 @@ TELEGRAM_GROUP_ID = (
     if "--telegram-pm-debug" not in sys.argv
     else os.environ["TELEGRAM_GROUP_ID_DEBUG"]
 )
+SURVEY_LINK = os.environ.get("SURVEY_LINK", "")
 
 OAUTH_HEADERS = {
     "Authorization": f"Bearer {LICHESS_OAUTH_TOKEN}",
@@ -60,9 +62,29 @@ def get_next_thursday(
     )
 
 
+async def get_last_swiss_tournaments(
+    client: httpx.AsyncClient, team_id: str, limit: int = 5
+) -> list[Dict]:
+    try:
+        response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
+        response.raise_for_status()
+        data = response.text.split("\n")[:limit]
+        return [json.loads(tournament) for tournament in data]
+    except httpx.HTTPError as e:
+        logging.error(f"Error fetching swiss tournaments: {e}")
+        return []
+
+
+def infer_sequence_number(tournaments: list[Dict]) -> int:
+    for tournament in tournaments:
+        match = re.search(r"(\d+)$", tournament["name"])
+        if match:
+            return int(match.group(1)) + 1
+    return 1
+
+
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
-    sequence_number: int = 0,
     custom_title: Optional[str] = None,
 ) -> Dict:
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
@@ -70,15 +92,27 @@ async def create_new_swiss_tournament_if_needed(
         return tournament
 
     logging.info("Creating new tournament for next Thursday")
-    return await create_new_swiss_tournament(client, sequence_number, custom_title)
+    last_tournaments = await get_last_swiss_tournaments(client, LICHESS_TEAM)
+
+    if custom_title:
+        if custom_title.isdigit():
+            title = f"Средошахматы {custom_title}"
+        else:
+            title = custom_title
+    elif last_tournaments:
+        sequence_number = infer_sequence_number(last_tournaments)
+        title = f"Средошахматы {sequence_number}"
+    else:
+        title = "Средошахматы 1"
+        logging.warning("No previous tournaments found. Starting with Средошахматы 1.")
+
+    return await create_new_swiss_tournament(client, title)
 
 
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
-    sequence_number: int = 0,
-    custom_title: Optional[str] = None,
+    title: str,
 ) -> Dict:
-    title = custom_title or f"Средошахматы {sequence_number}"
     tournament_params = {
         "name": title,
         "clock": {
@@ -104,23 +138,13 @@ async def create_new_swiss_tournament(
         raise
 
 
-async def get_last_swiss_tournament(
-    client: httpx.AsyncClient, team_id: str
-) -> Optional[Dict]:
-    try:
-        response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
-        response.raise_for_status()
-        data = response.text.split("\n")[0]
-        return json.loads(data)
-    except httpx.HTTPError as e:
-        logging.error(f"Error fetching swiss tournaments: {e}")
-        return None
-
-
 async def thursday_tournament_exists(
     client: httpx.AsyncClient, team_id: str
 ) -> Optional[Dict]:
-    last_tournament = await get_last_swiss_tournament(client, team_id)
+    last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
+    if last_tournaments:
+        last_tournament = last_tournaments[0]
+        next_thursday = get_next_thursday()
     next_thursday = get_next_thursday()
     if last_tournament:
         starts_at = pendulum.parse(last_tournament["startsAt"])
@@ -241,12 +265,12 @@ async def announce_via_telegram_channel(
 
 
 async def main():
-    sequence_number = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    custom_title = None
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
+        custom_title = sys.argv[1]
 
     async with httpx.AsyncClient() as client:
-        tournament = await create_new_swiss_tournament_if_needed(
-            client, sequence_number
-        )
+        tournament = await create_new_swiss_tournament_if_needed(client, custom_title)
 
         template = env.get_template("announcement.md.j2")
 
@@ -256,6 +280,7 @@ async def main():
             announcement = template.render(
                 tournament_url=swiss_tournament_url(tournament["id"]),
                 tournament_date=pendulum.parse(tournament["startsAt"]),
+                survey_link=SURVEY_LINK,
                 is_lichess=True,
                 is_telegram=False,
             )
@@ -265,6 +290,7 @@ async def main():
             announcement = template.render(
                 tournament_url=swiss_tournament_url(tournament["id"]),
                 tournament_date=pendulum.parse(tournament["startsAt"]),
+                survey_link=SURVEY_LINK,
                 is_lichess=False,
                 is_telegram=True,
             )
