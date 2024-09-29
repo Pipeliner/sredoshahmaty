@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import logging
@@ -23,11 +24,8 @@ logging.basicConfig(level=logging.INFO)
 LICHESS_OAUTH_TOKEN = os.environ["LICHESS_TOKEN"]
 LICHESS_TEAM = os.environ["LICHESS_TEAM"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_GROUP_ID = (
-    os.environ["TELEGRAM_GROUP_ID"]
-    if "--telegram-pm-debug" not in sys.argv
-    else os.environ["TELEGRAM_GROUP_ID_DEBUG"]
-)
+TELEGRAM_GROUP_ID = os.environ["TELEGRAM_GROUP_ID"]
+TELEGRAM_GROUP_ID_DEBUG = os.environ["TELEGRAM_GROUP_ID_DEBUG"]
 SURVEY_LINK = os.environ.get("SURVEY_LINK", "")
 
 OAUTH_HEADERS = {
@@ -39,11 +37,13 @@ OAUTH_HEADERS = {
 env = Environment(loader=FileSystemLoader("templates"))
 
 
+# Function to get the next Thursday
 def get_next_thursday(
     start_hour: int = 21, start_minute: int = 30, extra_minutes_before_start: int = 3
 ) -> pendulum.DateTime:
     today = pendulum.now("Europe/Moscow")
     if today.day_of_week == pendulum.THURSDAY:
+        # If today is Thursday, check if the current time is before the tournament start time
         if (today.hour, today.minute) < (start_hour, start_minute):
             logging.warning("Today is Thursday, making tournament for today")
             return today.replace(
@@ -53,6 +53,7 @@ def get_next_thursday(
                 microsecond=0,
             )
 
+    # Get the next Thursday
     thursday = today.next(pendulum.THURSDAY)
     return thursday.replace(
         hour=start_hour,
@@ -62,6 +63,7 @@ def get_next_thursday(
     )
 
 
+# Function to get the last Swiss tournaments for a team
 async def get_last_swiss_tournaments(
     client: httpx.AsyncClient, team_id: str, limit: int = 5
 ) -> list[Dict]:
@@ -75,6 +77,7 @@ async def get_last_swiss_tournaments(
         return []
 
 
+# Function to infer the sequence number for the next tournament
 def infer_sequence_number(tournaments: list[Dict]) -> int:
     for tournament in tournaments:
         match = re.search(r"(\d+)$", tournament["name"])
@@ -83,10 +86,12 @@ def infer_sequence_number(tournaments: list[Dict]) -> int:
     return 1
 
 
+# Function to create a new Swiss tournament if needed
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
     custom_title: Optional[str] = None,
 ) -> Dict:
+    # Check if a tournament for next Thursday already exists
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
         logging.info("Tournament for next Thursday already exists")
         return tournament
@@ -94,6 +99,7 @@ async def create_new_swiss_tournament_if_needed(
     logging.info("Creating new tournament for next Thursday")
     last_tournaments = await get_last_swiss_tournaments(client, LICHESS_TEAM)
 
+    # Determine the title for the new tournament
     if custom_title:
         if custom_title.isdigit():
             title = f"Средошахматы {custom_title}"
@@ -109,6 +115,7 @@ async def create_new_swiss_tournament_if_needed(
     return await create_new_swiss_tournament(client, title)
 
 
+# Function to create a new Swiss tournament
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
     title: str,
@@ -138,6 +145,7 @@ async def create_new_swiss_tournament(
         raise
 
 
+# Function to check if a tournament for next Thursday already exists
 async def thursday_tournament_exists(
     client: httpx.AsyncClient, team_id: str
 ) -> Optional[Dict]:
@@ -145,18 +153,18 @@ async def thursday_tournament_exists(
     if last_tournaments:
         last_tournament = last_tournaments[0]
         next_thursday = get_next_thursday()
-    next_thursday = get_next_thursday()
-    if last_tournament:
         starts_at = pendulum.parse(last_tournament["startsAt"])
         if starts_at.date() == next_thursday.date():
             return last_tournament
     return None
 
 
+# Function to get the URL of a Swiss tournament
 def swiss_tournament_url(tournament_id: str) -> str:
     return f"https://lichess.org/swiss/{tournament_id}"
 
 
+# Function to announce the tournament via Lichess PMs
 async def announce_via_lichess_pms(
     client: httpx.AsyncClient, team_id: str, message: str
 ):
@@ -172,10 +180,12 @@ async def announce_via_lichess_pms(
         logging.error(f"Error sending announcement via PM to the team: {e}")
 
 
+# Function to generate a calendar timestamp
 def calendar_timestamp(date: pendulum.DateTime) -> str:
     return date.in_timezone("UTC").format("YYYYMMDDTHHmmss") + "Z"
 
 
+# Function to generate ICS content for the tournament
 def generate_ics_content(
     tournament_id: str, tournament_date: pendulum.DateTime, tournament_title: str
 ) -> str:
@@ -210,6 +220,7 @@ END:VCALENDAR
 """
 
 
+# Function to announce the tournament via Telegram channel
 async def announce_via_telegram_channel(
     bot: Bot,
     channel_id: str,
@@ -265,18 +276,62 @@ async def announce_via_telegram_channel(
 
 
 async def main():
-    custom_title = None
-    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
-        custom_title = sys.argv[1]
+    parser = argparse.ArgumentParser(description="SredoShahmaty Tournament Manager")
+    parser.add_argument(
+        "custom_title", nargs="?", help="Custom title for the tournament"
+    )
+    parser.add_argument(
+        "--lichess-pm", action="store_true", help="Send announcement via Lichess PM"
+    )
+    parser.add_argument(
+        "--telegram-pm", action="store_true", help="Send announcement via Telegram"
+    )
+    parser.add_argument(
+        "--telegram-pm-debug",
+        action="store_true",
+        help="Send announcement via Telegram to debug group",
+    )
+    parser.add_argument(
+        "--tg-pin", action="store_true", help="Pin the Telegram message"
+    )
+    parser.add_argument(
+        "--tg-notify",
+        action="store_true",
+        help="Enable notifications for pinned Telegram message",
+    )
+    parser.add_argument(
+        "--tg-ics", action="store_true", help="Attach ICS file to Telegram message"
+    )
+    parser.add_argument(
+        "--show-next",
+        action="store_true",
+        help="Display information about the next scheduled tournament",
+    )
+    args = parser.parse_args()
+
+    if args.show_next:
+        async with httpx.AsyncClient() as client:
+            tournament = await thursday_tournament_exists(client, LICHESS_TEAM)
+            if tournament:
+                print(
+                    f"Next tournament: {tournament['name']} at {tournament['startsAt']}"
+                )
+                print(f"URL: {swiss_tournament_url(tournament['id'])}")
+            else:
+                next_thursday = get_next_thursday()
+                print(f"No tournament scheduled yet. Next Thursday: {next_thursday}")
+        return
 
     async with httpx.AsyncClient() as client:
-        tournament = await create_new_swiss_tournament_if_needed(client, custom_title)
+        tournament = await create_new_swiss_tournament_if_needed(
+            client, args.custom_title
+        )
 
         template = env.get_template("announcement.md.j2")
 
         tasks = []
 
-        if "--lichess-pm" in sys.argv:
+        if args.lichess_pm:
             announcement = template.render(
                 tournament_url=swiss_tournament_url(tournament["id"]),
                 tournament_date=pendulum.parse(tournament["startsAt"]),
@@ -286,7 +341,7 @@ async def main():
             )
             tasks.append(announce_via_lichess_pms(client, LICHESS_TEAM, announcement))
 
-        if "--telegram-pm" in sys.argv:
+        if args.telegram_pm or args.telegram_pm_debug:
             announcement = template.render(
                 tournament_url=swiss_tournament_url(tournament["id"]),
                 tournament_date=pendulum.parse(tournament["startsAt"]),
@@ -294,18 +349,18 @@ async def main():
                 is_lichess=False,
                 is_telegram=True,
             )
-            pin = "--tg-pin" in sys.argv
-            notify = "--tg-notify" in sys.argv
-            ics = "--tg-ics" in sys.argv
+            group_id = (
+                TELEGRAM_GROUP_ID_DEBUG if args.telegram_pm_debug else TELEGRAM_GROUP_ID
+            )
             async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
                 tasks.append(
                     announce_via_telegram_channel(
                         bot,
-                        TELEGRAM_GROUP_ID,
+                        group_id,
                         announcement,
-                        pin,
-                        notify,
-                        ics,
+                        args.tg_pin,
+                        args.tg_notify,
+                        args.tg_ics,
                         tournament["id"],
                         pendulum.parse(tournament["startsAt"]),
                         tournament["name"],
