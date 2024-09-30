@@ -25,4 +25,3 @@ This directory contains Jinja2 templates used for formatting announcements in th
 - Consider separating English and Russian translations for easier maintenance
 - Add more comments within the template to explain conditional logic
 - Implement a system for managing multiple announcement templates if needed in the future
-

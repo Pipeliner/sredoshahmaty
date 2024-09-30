@@ -57,6 +57,88 @@
 - When editing a file, always include the entire file content, even parts that haven't changed
 - After editing, verify that the file is complete and no parts have been omitted or represented with placeholders
 - Avoid using diff-style notation (e.g., "@@ -1,16 +1,109 @@") in files
+- Always use timeouts when making HTTP requests with httpx to prevent potential security vulnerabilities (CWE-400)
+
+## Code Quality Tools and Usage
+To maintain and improve code quality, the following tools are integrated into the project:
+
+1. Flake8: A tool that combines PyFlakes, pycodestyle, and McCabe complexity checker.
+   - Run manually: `poetry run flake8 .`
+   - VSCode integration: Install the "Python" extension and enable Flake8 in settings.
+
+2. Black: An opinionated code formatter that automatically formats your code.
+   - Run manually: `poetry run black .`
+   - VSCode integration: Install the "Python" extension and set Black as the formatter in settings.
+
+3. Mypy: A static type checker for Python.
+   - Run manually: `poetry run mypy .`
+   - VSCode integration: Install the "Python" extension and enable Mypy in settings.
+
+4. Pylint: A comprehensive linter that checks for errors and enforces a coding standard.
+   - Run manually: `poetry run pylint **/*.py`
+   - VSCode integration: Install the "Python" extension and enable Pylint in settings.
+
+5. Bandit: A tool designed to find common security issues in Python code.
+   - Run manually: `poetry run bandit -r .`
+   - VSCode integration: Install the "Bandit" extension.
+
+6. isort: A utility to sort imports alphabetically, and automatically separated into sections.
+   - Run manually: `poetry run isort .`
+   - VSCode integration: Install the "Python" extension and enable isort in settings.
+
+7. Ruff: A fast Python linter and code formatter.
+   - Configuration is in pyproject.toml
+   - Run manually: `poetry run ruff check .`
+   - VSCode integration: Install the "Ruff" extension.
+
+To set up pre-commit hooks:
+
+1. Install pre-commit: `pip install pre-commit`
+2. Create a `.pre-commit-config.yaml` file in the project root with the following content:
+
+```yaml
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+-   repo: https://github.com/psf/black
+    rev: 22.10.0
+    hooks:
+    -   id: black
+-   repo: https://github.com/PyCQA/flake8
+    rev: 6.0.0
+    hooks:
+    -   id: flake8
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v0.991
+    hooks:
+    -   id: mypy
+-   repo: https://github.com/PyCQA/pylint
+    rev: v2.15.5
+    hooks:
+    -   id: pylint
+-   repo: https://github.com/PyCQA/bandit
+    rev: 1.7.4
+    hooks:
+    -   id: bandit
+-   repo: https://github.com/pycqa/isort
+    rev: 5.10.1
+    hooks:
+    -   id: isort
+-   repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.260
+    hooks:
+    -   id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+```
+
+3. Install the pre-commit hooks: `pre-commit install`
+
+Now, these checks will run automatically before each commit. You can also run them manually with `pre-commit run --all-files`.
 
 ## Notes
 - The project uses asynchronous programming (asyncio)

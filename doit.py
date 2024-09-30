@@ -3,9 +3,7 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import re
-from typing import Dict, Optional, Tuple
 
 import dotenv
 import httpx
@@ -34,7 +32,7 @@ OAUTH_HEADERS = {
 }
 
 # Jinja2 setup
-env = Environment(loader=FileSystemLoader("templates"))
+env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
 
 
 # Function to get the next Thursday
@@ -43,7 +41,6 @@ def get_next_thursday(
 ) -> pendulum.DateTime:
     today = pendulum.now("Europe/Moscow")
     if today.day_of_week == pendulum.THURSDAY:
-        # If today is Thursday, check if the current time is before the tournament start time
         if (today.hour, today.minute) < (start_hour, start_minute):
             logging.warning("Today is Thursday, making tournament for today")
             return today.replace(
@@ -53,7 +50,6 @@ def get_next_thursday(
                 microsecond=0,
             )
 
-    # Get the next Thursday
     thursday = today.next(pendulum.THURSDAY)
     return thursday.replace(
         hour=start_hour,
@@ -66,7 +62,7 @@ def get_next_thursday(
 # Function to get the last Swiss tournaments for a team
 async def get_last_swiss_tournaments(
     client: httpx.AsyncClient, team_id: str, limit: int = 5
-) -> list[Dict]:
+) -> list[dict]:
     try:
         response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
         response.raise_for_status()
@@ -78,7 +74,7 @@ async def get_last_swiss_tournaments(
 
 
 # Function to infer the sequence number for the next tournament
-def infer_sequence_number(tournaments: list[Dict]) -> int:
+def infer_sequence_number(tournaments: list[dict]) -> int:
     for tournament in tournaments:
         match = re.search(r"(\d+)$", tournament["name"])
         if match:
@@ -89,8 +85,8 @@ def infer_sequence_number(tournaments: list[Dict]) -> int:
 # Function to create a new Swiss tournament if needed
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
-    custom_title: Optional[str] = None,
-) -> Dict:
+    custom_title: str | None = None,
+) -> dict:
     # Check if a tournament for next Thursday already exists
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
         logging.info("Tournament for next Thursday already exists")
@@ -119,7 +115,7 @@ async def create_new_swiss_tournament_if_needed(
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
     title: str,
-) -> Dict:
+) -> dict:
     tournament_params = {
         "name": title,
         "clock": {
@@ -146,9 +142,7 @@ async def create_new_swiss_tournament(
 
 
 # Function to check if a tournament for next Thursday already exists
-async def thursday_tournament_exists(
-    client: httpx.AsyncClient, team_id: str
-) -> Optional[Dict]:
+async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> dict | None:
     last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
     if last_tournaments:
         last_tournament = last_tournaments[0]
@@ -165,9 +159,7 @@ def swiss_tournament_url(tournament_id: str) -> str:
 
 
 # Function to announce the tournament via Lichess PMs
-async def announce_via_lichess_pms(
-    client: httpx.AsyncClient, team_id: str, message: str
-):
+async def announce_via_lichess_pms(client: httpx.AsyncClient, team_id: str, message: str):
     try:
         response = await client.post(
             f"https://lichess.org/team/{team_id}/pm-all",
@@ -228,9 +220,9 @@ async def announce_via_telegram_channel(
     pin: bool = True,
     notify: bool = True,
     attach_ics: bool = True,
-    tournament_id: Optional[str] = None,
-    tournament_date: Optional[pendulum.DateTime] = None,
-    tournament_title: Optional[str] = None,
+    tournament_id: str | None = None,
+    tournament_date: pendulum.DateTime | None = None,
+    tournament_title: str | None = None,
 ):
     try:
         if attach_ics:
@@ -277,31 +269,23 @@ async def announce_via_telegram_channel(
 
 async def main():
     parser = argparse.ArgumentParser(description="SredoShahmaty Tournament Manager")
-    parser.add_argument(
-        "custom_title", nargs="?", help="Custom title for the tournament"
-    )
+    parser.add_argument("custom_title", nargs="?", help="Custom title for the tournament")
     parser.add_argument(
         "--lichess-pm", action="store_true", help="Send announcement via Lichess PM"
     )
-    parser.add_argument(
-        "--telegram-pm", action="store_true", help="Send announcement via Telegram"
-    )
+    parser.add_argument("--telegram-pm", action="store_true", help="Send announcement via Telegram")
     parser.add_argument(
         "--telegram-pm-debug",
         action="store_true",
         help="Send announcement via Telegram to debug group",
     )
-    parser.add_argument(
-        "--tg-pin", action="store_true", help="Pin the Telegram message"
-    )
+    parser.add_argument("--tg-pin", action="store_true", help="Pin the Telegram message")
     parser.add_argument(
         "--tg-notify",
         action="store_true",
         help="Enable notifications for pinned Telegram message",
     )
-    parser.add_argument(
-        "--tg-ics", action="store_true", help="Attach ICS file to Telegram message"
-    )
+    parser.add_argument("--tg-ics", action="store_true", help="Attach ICS file to Telegram message")
     parser.add_argument(
         "--show-next",
         action="store_true",
@@ -309,23 +293,19 @@ async def main():
     )
     args = parser.parse_args()
 
-    if args.show_next:
-        async with httpx.AsyncClient() as client:
+    timeout = httpx.Timeout(10.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        if args.show_next:
             tournament = await thursday_tournament_exists(client, LICHESS_TEAM)
             if tournament:
-                print(
-                    f"Next tournament: {tournament['name']} at {tournament['startsAt']}"
-                )
+                print(f"Next tournament: {tournament['name']} at {tournament['startsAt']}")
                 print(f"URL: {swiss_tournament_url(tournament['id'])}")
             else:
                 next_thursday = get_next_thursday()
                 print(f"No tournament scheduled yet. Next Thursday: {next_thursday}")
-        return
+            return
 
-    async with httpx.AsyncClient() as client:
-        tournament = await create_new_swiss_tournament_if_needed(
-            client, args.custom_title
-        )
+        tournament = await create_new_swiss_tournament_if_needed(client, args.custom_title)
 
         template = env.get_template("announcement.md.j2")
 
@@ -349,9 +329,7 @@ async def main():
                 is_lichess=False,
                 is_telegram=True,
             )
-            group_id = (
-                TELEGRAM_GROUP_ID_DEBUG if args.telegram_pm_debug else TELEGRAM_GROUP_ID
-            )
+            group_id = TELEGRAM_GROUP_ID_DEBUG if args.telegram_pm_debug else TELEGRAM_GROUP_ID
             async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
                 tasks.append(
                     announce_via_telegram_channel(
