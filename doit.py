@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import dotenv
 import httpx
@@ -60,23 +62,30 @@ def get_next_thursday(
 
 
 # Function to get the last Swiss tournaments for a team
+@dataclass
+class Tournament:
+    name: str
+    startsAt: str
+    id: str
+
+
 async def get_last_swiss_tournaments(
     client: httpx.AsyncClient, team_id: str, limit: int = 5
-) -> list[dict]:
+) -> List[Tournament]:
     try:
         response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
         response.raise_for_status()
         data = response.text.split("\n")[:limit]
-        return [json.loads(tournament) for tournament in data]
+        return [Tournament(**json.loads(tournament)) for tournament in data]
     except httpx.HTTPError as e:
         logging.error(f"Error fetching swiss tournaments: {e}")
         return []
 
 
 # Function to infer the sequence number for the next tournament
-def infer_sequence_number(tournaments: list[dict]) -> int:
+def infer_sequence_number(tournaments: List[Tournament]) -> int:
     for tournament in tournaments:
-        match = re.search(r"(\d+)$", tournament["name"])
+        match = re.search(r"(\d+)$", tournament.name)
         if match:
             return int(match.group(1)) + 1
     return 1
@@ -85,8 +94,8 @@ def infer_sequence_number(tournaments: list[dict]) -> int:
 # Function to create a new Swiss tournament if needed
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
-    custom_title: str | None = None,
-) -> dict:
+    custom_title: Optional[str] = None,
+) -> Tournament:
     # Check if a tournament for next Thursday already exists
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
         logging.info("Tournament for next Thursday already exists")
@@ -115,8 +124,8 @@ async def create_new_swiss_tournament_if_needed(
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
     title: str,
-) -> dict:
-    tournament_params = {
+) -> Tournament:
+    tournament_params: Dict[str, Any] = {
         "name": title,
         "clock": {
             "limit": 180,
@@ -135,19 +144,19 @@ async def create_new_swiss_tournament(
             json=tournament_params,
         )
         response.raise_for_status()
-        return response.json()
+        return Tournament(**response.json())
     except httpx.HTTPError as e:
         logging.error(f"Error creating new Swiss tournament: {e}")
         raise
 
 
 # Function to check if a tournament for next Thursday already exists
-async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> dict | None:
+async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> Optional[Tournament]:
     last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
     if last_tournaments:
         last_tournament = last_tournaments[0]
         next_thursday = get_next_thursday()
-        starts_at = pendulum.parse(last_tournament["startsAt"])
+        starts_at = pendulum.parse(last_tournament.startsAt)
         if starts_at.date() == next_thursday.date():
             return last_tournament
     return None
@@ -220,9 +229,9 @@ async def announce_via_telegram_channel(
     pin: bool = True,
     notify: bool = True,
     attach_ics: bool = True,
-    tournament_id: str | None = None,
-    tournament_date: pendulum.DateTime | None = None,
-    tournament_title: str | None = None,
+    tournament_id: Optional[str] = None,
+    tournament_date: Optional[pendulum.DateTime] = None,
+    tournament_title: Optional[str] = None,
 ):
     try:
         if attach_ics:
@@ -298,8 +307,8 @@ async def main():
         if args.show_next:
             tournament = await thursday_tournament_exists(client, LICHESS_TEAM)
             if tournament:
-                print(f"Next tournament: {tournament['name']} at {tournament['startsAt']}")
-                print(f"URL: {swiss_tournament_url(tournament['id'])}")
+                print(f"Next tournament: {tournament.name} at {tournament.startsAt}")
+                print(f"URL: {swiss_tournament_url(tournament.id)}")
             else:
                 next_thursday = get_next_thursday()
                 print(f"No tournament scheduled yet. Next Thursday: {next_thursday}")
@@ -313,8 +322,8 @@ async def main():
 
         if args.lichess_pm:
             announcement = template.render(
-                tournament_url=swiss_tournament_url(tournament["id"]),
-                tournament_date=pendulum.parse(tournament["startsAt"]),
+                tournament_url=swiss_tournament_url(tournament.id),
+                tournament_date=pendulum.parse(tournament.startsAt),
                 survey_link=SURVEY_LINK,
                 is_lichess=True,
                 is_telegram=False,
@@ -323,8 +332,8 @@ async def main():
 
         if args.telegram_pm or args.telegram_pm_debug:
             announcement = template.render(
-                tournament_url=swiss_tournament_url(tournament["id"]),
-                tournament_date=pendulum.parse(tournament["startsAt"]),
+                tournament_url=swiss_tournament_url(tournament.id),
+                tournament_date=pendulum.parse(tournament.startsAt),
                 survey_link=SURVEY_LINK,
                 is_lichess=False,
                 is_telegram=True,
@@ -339,9 +348,9 @@ async def main():
                         args.tg_pin,
                         args.tg_notify,
                         args.tg_ics,
-                        tournament["id"],
-                        pendulum.parse(tournament["startsAt"]),
-                        tournament["name"],
+                        tournament.id,
+                        pendulum.parse(tournament.startsAt),
+                        tournament.name,
                     )
                 )
 
