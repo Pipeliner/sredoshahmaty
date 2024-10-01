@@ -12,7 +12,7 @@ import pendulum
 from aiogram import Bot
 from aiogram.types import BufferedInputFile
 from jinja2 import Environment, FileSystemLoader
-from pydantic import BaseModel, Extra
+from pydantic import BaseModel
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
@@ -37,7 +37,7 @@ OAUTH_HEADERS = {
 env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
 
 
-class Tournament(BaseModel, extra=Extra.allow):
+class Tournament(BaseModel, extra="allow"):
     id: str
     name: str
     startsAt: str
@@ -154,9 +154,7 @@ async def create_new_swiss_tournament(
 
 
 # Function to check if a tournament for next Thursday already exists
-async def thursday_tournament_exists(
-    client: httpx.AsyncClient, team_id: str
-) -> Tournament | None:
+async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> Tournament | None:
     last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
     if last_tournaments:
         last_tournament = last_tournaments[0]
