@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from typing import Any
 
 import dotenv
 import httpx
@@ -62,7 +63,7 @@ def get_next_thursday(
 # Function to get the last Swiss tournaments for a team
 async def get_last_swiss_tournaments(
     client: httpx.AsyncClient, team_id: str, limit: int = 5
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     try:
         response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
         response.raise_for_status()
@@ -74,7 +75,7 @@ async def get_last_swiss_tournaments(
 
 
 # Function to infer the sequence number for the next tournament
-def infer_sequence_number(tournaments: list[dict]) -> int:
+def infer_sequence_number(tournaments: list[dict[str, Any]]) -> int:
     for tournament in tournaments:
         match = re.search(r"(\d+)$", tournament["name"])
         if match:
@@ -86,7 +87,7 @@ def infer_sequence_number(tournaments: list[dict]) -> int:
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
     custom_title: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     # Check if a tournament for next Thursday already exists
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
         logging.info("Tournament for next Thursday already exists")
@@ -115,8 +116,8 @@ async def create_new_swiss_tournament_if_needed(
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
     title: str,
-) -> dict:
-    tournament_params = {
+) -> dict[str, Any]:
+    tournament_params: dict[str, Any] = {
         "name": title,
         "clock": {
             "limit": 180,
@@ -142,7 +143,9 @@ async def create_new_swiss_tournament(
 
 
 # Function to check if a tournament for next Thursday already exists
-async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> dict | None:
+async def thursday_tournament_exists(
+    client: httpx.AsyncClient, team_id: str
+) -> dict[str, Any] | None:
     last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
     if last_tournaments:
         last_tournament = last_tournaments[0]
@@ -275,17 +278,25 @@ async def main():
     )
     parser.add_argument("--telegram-pm", action="store_true", help="Send announcement via Telegram")
     parser.add_argument(
-        "--telegram-pm-debug",
+        "--tg-debug-channel",
         action="store_true",
-        help="Send announcement via Telegram to debug group",
+        help="Send announcement via Telegram to debug channel (requires --telegram-pm)",
     )
-    parser.add_argument("--tg-pin", action="store_true", help="Pin the Telegram message")
+    parser.add_argument(
+        "--tg-pin",
+        action="store_true",
+        help="Pin the Telegram message (requires --telegram-pm)",
+    )
     parser.add_argument(
         "--tg-notify",
         action="store_true",
-        help="Enable notifications for pinned Telegram message",
+        help="Enable notifications for pinned Telegram message (requires --telegram-pm)",
     )
-    parser.add_argument("--tg-ics", action="store_true", help="Attach ICS file to Telegram message")
+    parser.add_argument(
+        "--tg-ics",
+        action="store_true",
+        help="Attach ICS file to Telegram message (requires --telegram-pm)",
+    )
     parser.add_argument(
         "--show-next",
         action="store_true",
@@ -321,7 +332,7 @@ async def main():
             )
             tasks.append(announce_via_lichess_pms(client, LICHESS_TEAM, announcement))
 
-        if args.telegram_pm or args.telegram_pm_debug:
+        if args.telegram_pm:
             announcement = template.render(
                 tournament_url=swiss_tournament_url(tournament["id"]),
                 tournament_date=pendulum.parse(tournament["startsAt"]),
@@ -329,7 +340,7 @@ async def main():
                 is_lichess=False,
                 is_telegram=True,
             )
-            group_id = TELEGRAM_GROUP_ID_DEBUG if args.telegram_pm_debug else TELEGRAM_GROUP_ID
+            group_id = TELEGRAM_GROUP_ID_DEBUG if args.tg_debug_channel else TELEGRAM_GROUP_ID
             async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
                 tasks.append(
                     announce_via_telegram_channel(
