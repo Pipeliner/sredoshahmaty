@@ -12,6 +12,7 @@ import pendulum
 from aiogram import Bot
 from aiogram.types import BufferedInputFile
 from jinja2 import Environment, FileSystemLoader
+from pydantic import BaseModel
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
@@ -34,6 +35,16 @@ OAUTH_HEADERS = {
 
 # Jinja2 setup
 env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
+
+
+class Tournament(BaseModel, extra="allow"):
+    id: str
+    name: str
+    startsAt: str
+
+    @property
+    def url(self) -> str:
+        return f"https://lichess.org/swiss/{self.id}"
 
 
 # Function to get the next Thursday
@@ -63,21 +74,21 @@ def get_next_thursday(
 # Function to get the last Swiss tournaments for a team
 async def get_last_swiss_tournaments(
     client: httpx.AsyncClient, team_id: str, limit: int = 5
-) -> list[dict[str, Any]]:
+) -> list[Tournament]:
     try:
         response = await client.get(f"https://lichess.org/api/team/{team_id}/swiss")
         response.raise_for_status()
         data = response.text.split("\n")[:limit]
-        return [json.loads(tournament) for tournament in data]
+        return [Tournament(**json.loads(tournament)) for tournament in data]
     except httpx.HTTPError as e:
         logging.error(f"Error fetching swiss tournaments: {e}")
         return []
 
 
 # Function to infer the sequence number for the next tournament
-def infer_sequence_number(tournaments: list[dict[str, Any]]) -> int:
+def infer_sequence_number(tournaments: list[Tournament]) -> int:
     for tournament in tournaments:
-        match = re.search(r"(\d+)$", tournament["name"])
+        match = re.search(r"(\d+)$", tournament.name)
         if match:
             return int(match.group(1)) + 1
     return 1
@@ -87,7 +98,7 @@ def infer_sequence_number(tournaments: list[dict[str, Any]]) -> int:
 async def create_new_swiss_tournament_if_needed(
     client: httpx.AsyncClient,
     custom_title: str | None = None,
-) -> dict[str, Any]:
+) -> Tournament:
     # Check if a tournament for next Thursday already exists
     if tournament := await thursday_tournament_exists(client, LICHESS_TEAM):
         logging.info("Tournament for next Thursday already exists")
@@ -116,7 +127,7 @@ async def create_new_swiss_tournament_if_needed(
 async def create_new_swiss_tournament(
     client: httpx.AsyncClient,
     title: str,
-) -> dict[str, Any]:
+) -> Tournament:
     tournament_params: dict[str, Any] = {
         "name": title,
         "clock": {
@@ -136,29 +147,22 @@ async def create_new_swiss_tournament(
             json=tournament_params,
         )
         response.raise_for_status()
-        return response.json()
+        return Tournament(**response.json())
     except httpx.HTTPError as e:
         logging.error(f"Error creating new Swiss tournament: {e}")
         raise
 
 
 # Function to check if a tournament for next Thursday already exists
-async def thursday_tournament_exists(
-    client: httpx.AsyncClient, team_id: str
-) -> dict[str, Any] | None:
+async def thursday_tournament_exists(client: httpx.AsyncClient, team_id: str) -> Tournament | None:
     last_tournaments = await get_last_swiss_tournaments(client, team_id, limit=1)
     if last_tournaments:
         last_tournament = last_tournaments[0]
         next_thursday = get_next_thursday()
-        starts_at = pendulum.parse(last_tournament["startsAt"])
+        starts_at = pendulum.parse(last_tournament.startsAt)
         if starts_at.date() == next_thursday.date():
             return last_tournament
     return None
-
-
-# Function to get the URL of a Swiss tournament
-def swiss_tournament_url(tournament_id: str) -> str:
-    return f"https://lichess.org/swiss/{tournament_id}"
 
 
 # Function to announce the tournament via Lichess PMs
@@ -182,7 +186,7 @@ def calendar_timestamp(date: pendulum.DateTime) -> str:
 
 # Function to generate ICS content for the tournament
 def generate_ics_content(
-    tournament_id: str, tournament_date: pendulum.DateTime, tournament_title: str
+    tournament: Tournament, tournament_date: pendulum.DateTime, tournament_title: str
 ) -> str:
     return f"""BEGIN:VCALENDAR
 VERSION:2.0
@@ -193,9 +197,9 @@ DTSTAMP:{calendar_timestamp(tournament_date.subtract(days=1))}
 DTSTART:{calendar_timestamp(tournament_date)}
 DTEND:{calendar_timestamp(tournament_date.add(hours=1))}
 SUMMARY:{tournament_title}
-DESCRIPTION:Chess tournament on Lichess: {swiss_tournament_url(tournament_id)}
-URL:{swiss_tournament_url(tournament_id)}
-X-ALT-DESC;FMTTYPE=text/html:Chess tournament on Lichess: <a href="{swiss_tournament_url(tournament_id)}">{swiss_tournament_url(tournament_id)}</a>
+DESCRIPTION:Chess tournament on Lichess: {tournament.url}
+URL:{tournament.url}
+X-ALT-DESC;FMTTYPE=text/html:Chess tournament on Lichess: <a href="{tournament.url}">{tournament.url}</a>
 BEGIN:VALARM
 ACTION:DISPLAY
 DESCRIPTION:Reminder: 1 hour before event
@@ -209,7 +213,7 @@ END:VALARM
 X-GOOGLE-CALENDAR-CONTENT-TITLE:{tournament_title}
 X-GOOGLE-CALENDAR-CONTENT-ICON:https://ssl.gstatic.com/calendar/images/notification_icon_event_4x.png
 X-GOOGLE-CALENDAR-CONTENT-TYPE:text/html
-X-GOOGLE-CALENDAR-CONTENT-VALUE:<font color="#4285F4">{tournament_title}</font><br><a href="{swiss_tournament_url(tournament_id)}">{swiss_tournament_url(tournament_id)}</a>
+X-GOOGLE-CALENDAR-CONTENT-VALUE:<font color="#4285F4">{tournament_title}</font><br><a href="{tournament.url}">{tournament.url}</a>
 END:VEVENT
 END:VCALENDAR
 """
@@ -223,18 +227,18 @@ async def announce_via_telegram_channel(
     pin: bool = True,
     notify: bool = True,
     attach_ics: bool = True,
-    tournament_id: str | None = None,
+    tournament: Tournament | None = None,
     tournament_date: pendulum.DateTime | None = None,
     tournament_title: str | None = None,
 ):
     try:
         if attach_ics:
-            if not tournament_id or not tournament_date or not tournament_title:
+            if not tournament or not tournament_date or not tournament_title:
                 logging.error("Missing tournament details for ICS attachment")
                 return False
 
             ics_content = generate_ics_content(
-                tournament_id, tournament_date, tournament_title
+                tournament, tournament_date, tournament_title
             ).encode()
 
             file = BufferedInputFile(ics_content, filename="lc.ics")
@@ -309,8 +313,8 @@ async def main():
         if args.show_next:
             tournament = await thursday_tournament_exists(client, LICHESS_TEAM)
             if tournament:
-                print(f"Next tournament: {tournament['name']} at {tournament['startsAt']}")
-                print(f"URL: {swiss_tournament_url(tournament['id'])}")
+                print(f"Next tournament: {tournament.name} at {tournament.startsAt}")
+                print(f"URL: {tournament.url}")
             else:
                 next_thursday = get_next_thursday()
                 print(f"No tournament scheduled yet. Next Thursday: {next_thursday}")
@@ -324,8 +328,8 @@ async def main():
 
         if args.lichess_pm:
             announcement = template.render(
-                tournament_url=swiss_tournament_url(tournament["id"]),
-                tournament_date=pendulum.parse(tournament["startsAt"]),
+                tournament_url=tournament.url,
+                tournament_date=pendulum.parse(tournament.startsAt),
                 survey_link=SURVEY_LINK,
                 is_lichess=True,
                 is_telegram=False,
@@ -334,8 +338,8 @@ async def main():
 
         if args.telegram_pm:
             announcement = template.render(
-                tournament_url=swiss_tournament_url(tournament["id"]),
-                tournament_date=pendulum.parse(tournament["startsAt"]),
+                tournament_url=tournament.url,
+                tournament_date=pendulum.parse(tournament.startsAt),
                 survey_link=SURVEY_LINK,
                 is_lichess=False,
                 is_telegram=True,
@@ -350,9 +354,9 @@ async def main():
                         args.tg_pin,
                         args.tg_notify,
                         args.tg_ics,
-                        tournament["id"],
-                        pendulum.parse(tournament["startsAt"]),
-                        tournament["name"],
+                        tournament,
+                        pendulum.parse(tournament.startsAt),
+                        tournament.name,
                     )
                 )
 
