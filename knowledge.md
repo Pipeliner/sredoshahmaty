@@ -172,6 +172,6 @@ Now, these checks will run automatically before each commit. You can also run th
 - Regularly review and update the list of potential improvements based on user feedback and changing needs
 
 ## Pydantic Models
-- The project now uses pydantic models for Tournaments with `extra = allow`.
+- The project now uses pydantic models for Tournaments with `extra = allow`. 
 - The `Tournament` model is defined in `doit.py` and is used to handle tournament data.
 - The `url` method of the `Tournament` model generates the URL for the tournament.
