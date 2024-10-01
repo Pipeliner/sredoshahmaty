@@ -25,7 +25,7 @@
    - Key configuration items include Lichess OAuth token, Telegram bot token, team IDs, and survey link
 
 4. Dependencies
-   - Main dependencies: httpx, pendulum, aiogram, jinja2
+   - Main dependencies: httpx, pendulum, aiogram, jinja2, pydantic
    - Uses Poetry for dependency management
 
 ## File Structure
